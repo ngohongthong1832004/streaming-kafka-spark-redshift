@@ -1,0 +1,76 @@
+version: "3.8"
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,DOCKER://kafka:29092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,DOCKER://0.0.0.0:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,DOCKER:PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  init-kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: init-kafka
+    depends_on:
+      - kafka
+    entrypoint: bash
+    command: -c "
+      echo '⏳ Waiting for Kafka...'; sleep 10;
+      kafka-topics --bootstrap-server kafka:9092 \
+        --create --if-not-exists \
+        --replication-factor 1 \
+        --partitions 1 \
+        --topic social_posts;
+      echo '🧠 Waiting for partition leader election...';
+      until kafka-topics --bootstrap-server kafka:9092 --describe --topic social_posts | grep -q 'Leader:'; do
+        echo '🔁 Still waiting for leader...'; sleep 2;
+      done;
+      echo '✅ Topic social_posts is ready!';"
+
+  kafka-ui:
+    image: obsidiandynamics/kafdrop
+    container_name: kafka-ui
+    restart: always
+    depends_on:
+      - kafka
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKER_CONNECT: kafka:9092
+      JVM_OPTS: "-Xms32M -Xmx64M"
+      SERVER_PORT: 9000
+
+  spark:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    container_name: spark
+    depends_on:
+      - kafka
+      - init-kafka
+    ports:
+      - "4040:4040"
+    environment:
+      - SPARK_MODE=master
+    volumes:
+      - ./spark_streaming:/app
+    entrypoint: bash -c "
+      echo '⌛ Waiting before starting Spark...'; sleep 10;
+      /opt/bitnami/scripts/spark/entrypoint.sh spark-submit /app/stream_to_redshift.py"
