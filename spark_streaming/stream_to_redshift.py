@@ -2,7 +2,6 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import from_json, col
 from pyspark.sql.types import StructType, StructField, StringType, LongType, IntegerType, TimestampType
 
-# Khai báo schema dữ liệu từ Kafka
 schema = StructType([
     StructField("post_id", StringType()),
     StructField("user_id", LongType()),
@@ -19,45 +18,40 @@ schema = StructType([
     StructField("url", StringType())
 ])
 
-# Khởi tạo SparkSession
 spark = SparkSession.builder \
     .appName("KafkaToRedshift") \
     .getOrCreate()
 
 spark.sparkContext.setLogLevel("WARN")
 
-# Đọc dữ liệu từ Kafka
 df = spark.readStream \
     .format("kafka") \
-    .option("kafka.bootstrap.servers", "kafka:9092") \
+    .option("kafka.bootstrap.servers", "kafka:29092") \
     .option("subscribe", "social_posts") \
+    .option("startingOffsets", "latest") \
     .load()
 
-# Parse JSON từ Kafka message
 json_df = df.selectExpr("CAST(value AS STRING)")
 parsed_df = json_df.select(from_json(col("value"), schema).alias("data")).select("data.*")
 
-# Ghi batch vào Redshift
 def write_to_redshift(batch_df, batch_id):
-    row_count = batch_df.count()
-    print(f"🚀 Batch {batch_id} - Rows: {row_count}")
-    if row_count > 0:
+    try:
+        print(f"🔥 Writing batch {batch_id} with {batch_df.count()} rows...")
         batch_df.write \
             .format("jdbc") \
             .option("url", "jdbc:redshift://lab1.913524914199.us-east-1.redshift-serverless.amazonaws.com:5439/dev") \
-            .option("dbtable", "dev") \
             .option("user", "admin") \
             .option("password", "VDBIKyqbnp682.&") \
+            .option("dbtable", "dev") \
             .option("driver", "com.amazon.redshift.jdbc42.Driver") \
             .mode("append") \
             .save()
-    else:
-        print("⚠️ Empty batch — nothing to write.")
+    except Exception as e:
+        print(f"❌ Failed batch {batch_id}: {e}")
 
-# Khởi động streaming query
 query = parsed_df.writeStream \
     .foreachBatch(write_to_redshift) \
-    .option("checkpointLocation", "/tmp/checkpoint_kafka_to_redshift") \
+    .option("checkpointLocation", "/tmp/kafka-checkpoint") \
     .start()
 
 query.awaitTermination()

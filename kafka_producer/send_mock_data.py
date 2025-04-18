@@ -33,5 +33,5 @@ while True:
         'url': fake.url()
     }
     producer.send(topic, value=message)
-    print("Sent:", message)
+    print("Sent:", message["post_id"])
     time.sleep(1)

@@ -33,13 +33,13 @@ services:
     entrypoint: bash
     command: -c "
       echo '⏳ Waiting for Kafka...'; sleep 10;
-      kafka-topics --bootstrap-server kafka:9092 \
+      kafka-topics --bootstrap-server kafka:29092 \
         --create --if-not-exists \
         --replication-factor 1 \
         --partitions 1 \
         --topic social_posts;
       echo '🧠 Waiting for partition leader election...';
-      until kafka-topics --bootstrap-server kafka:9092 --describe --topic social_posts | grep -q 'Leader:'; do
+      until kafka-topics --bootstrap-server kafka:29092 --describe --topic social_posts | grep -q 'Leader:'; do
         echo '🔁 Still waiting for leader...'; sleep 2;
       done;
       echo '✅ Topic social_posts is ready!';"
@@ -53,7 +53,7 @@ services:
     ports:
       - "9000:9000"
     environment:
-      KAFKA_BROKER_CONNECT: kafka:9092
+      KAFKA_BROKER_CONNECT: kafka:29092
       JVM_OPTS: "-Xms32M -Xmx64M"
       SERVER_PORT: 9000
 
@@ -71,6 +71,7 @@ services:
       - SPARK_MODE=master
     volumes:
       - ./spark_streaming:/app
+      - ./spark/redshift-jdbc42-2.1.0.32.jar:/opt/bitnami/spark/jars/redshift-jdbc42-2.1.0.32.jar
     entrypoint: bash -c "
       echo '⌛ Waiting before starting Spark...'; sleep 10;
       /opt/bitnami/scripts/spark/entrypoint.sh spark-submit /app/stream_to_redshift.py"
